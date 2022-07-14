@@ -27,7 +27,7 @@ type sysc struct{
 }
 type res struct{
 	Syscall	sysc
-	Path	[]uint64
+	Path	[]string
 }
 type func_data struct {
 	Offset		uint64		`json:"offset"`
@@ -169,17 +169,37 @@ func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
         if err != nil {
                 panic(err)
                 }
-	fmt.Println(buf)
+//	fmt.Println(buf)
 	error := json.Unmarshal( []byte(buf), &f)
         if(error != nil){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
-	fmt.Println(f[0])
+//	fmt.Println(f[0])
 	if f[0].Name ==s {
 		return f[0].Offset
 		}
 	return 0
 }
+
+
+func Addr2sym(s uint64, r2p *r2.Pipe) (string){
+        var f  []func_data
+        buf, err := r2p.Cmd("afij "+ strconv.FormatUint(s,10))
+        if err != nil {
+                panic(err)
+                }
+//        fmt.Println(buf)
+        error := json.Unmarshal( []byte(buf), &f)
+        if(error != nil){
+                fmt.Printf("Error while parsing data: %s", error)
+                }
+//        fmt.Println(f[0])
+        if f[0].Offset ==s {
+                return f[0].Name
+                }
+        return "unknown 0x"+strconv.FormatUint(s,16)
+}
+
 
 
 func convertSliceToInterface(s interface{}) (slice []interface{}) {
@@ -208,10 +228,16 @@ func NotContained(s interface{}, e interface{}) bool {
 	return true
 }
 
-func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64){
+func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64, r2p *r2.Pipe){
+	var	path_s []string
+	for _, p := range path {
+		path_s=append(path_s,  Addr2sym(p, r2p)) 
+		}
+
+
 	for _, s := range syscall_list {
 		if s.Addr >= start && s.Addr <= end {
-			*results=append(*results,res{s,path})
+			*results=append(*results,res{s,path_s})
 			return
 			}
 		}
@@ -241,7 +267,7 @@ func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, s
 	xrefs:=Getxrefs(r2p)
 	path:=append(visited, current)
 //	fmt.Println("current list ",xrefs)
-	sys_add(current, Function_end(current, functions), results, syscall_list, path)
+	sys_add(current, Function_end(current, functions), results, syscall_list, path, r2p)
 //	results:=checkfunction(current, targets)
 	for _,xref := range(xrefs) {
 //			fmt.Println("current ", current, " visiting ", xref, " visited ",*visited," iteration ",i)
