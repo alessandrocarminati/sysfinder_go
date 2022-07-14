@@ -1,0 +1,9 @@
+.pipe.go.swp
+go2pipe
+libc.so*
+*.bak
+pippo*
+pippo.txt
+pippo2
+pippo2.save
+*.save
