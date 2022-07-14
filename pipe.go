@@ -1,6 +1,7 @@
 package main
 import (
 	"fmt"
+	"os"
 	"strings"
 	"encoding/json"
 	"sort"
@@ -9,12 +10,25 @@ import (
 	r2 "github.com/radareorg/r2pipe-go"
 )
 
+const (
+        Success int	= 0
+        Target		= 1
+        Symbol		= 2
+        Help		= 4
+	Default		= 5
+	None		= 6
+)
+
+
 
 type sysc struct{
-	Addr	uint64;
-	Name	string;
+	Addr	uint64
+	Name	string
 }
-
+type res struct{
+	Syscall	sysc
+	Path	[]uint64
+}
 type func_data struct {
 	Offset		uint64		`json:"offset"`
 	Name		string		`json: "name"`
@@ -58,9 +72,9 @@ type stack_var_ struct{
 	Name		string		`json: "name"`
 	Kind		string		`json: "kind"`
 	Type		string		`json: "type"`
-	Ref		[]var_ref_	`json: "ref"`
+	Ref		vars_ref	`json: "ref"`
 }
-type	var_ref_ struct{
+type vars_ref struct{
 	Base		string		`json: "base"`
 	Offset		uint32		`json: "offset"`
 }
@@ -70,6 +84,7 @@ type reg_var_ struct{
 	Type		string		`json: "type"`
 	Ref		[]string	`json: "ref"`
 }
+
 type xref struct{
 	Type		string		`json: "type"`
 	From		uint64		`json: "from"`
@@ -77,7 +92,7 @@ type xref struct{
 }
 
 
-
+// field stack_var_.Spvars.Ref of type []main
 
 
 
@@ -136,6 +151,37 @@ func Function_end(current uint64, funcs []func_data) (end uint64){
         return 0
 }
 
+func Symb2Addr(s string, funcs []func_data) (uint64){
+        for _, f := range funcs {
+                if strings.Contains(f.Name,s)  {
+			if f.Name != s {
+				fmt.Printf("Warning: provided symbol %s not found, using %s", s, f.Name)
+	                        return f.Offset
+				}
+                	}
+        	}
+        return 0
+}
+
+func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
+	var f  []func_data
+        buf, err := r2p.Cmd("afij "+ s)
+        if err != nil {
+                panic(err)
+                }
+	fmt.Println(buf)
+	error := json.Unmarshal( []byte(buf), &f)
+        if(error != nil){
+                fmt.Printf("Error while parsing data: %s", error)
+                }
+	fmt.Println(f[0])
+	if f[0].Name ==s {
+		return f[0].Offset
+		}
+	return 0
+}
+
+
 func convertSliceToInterface(s interface{}) (slice []interface{}) {
 	v := reflect.ValueOf(s)
 	if v.Kind() != reflect.Slice {
@@ -162,16 +208,16 @@ func NotContained(s interface{}, e interface{}) bool {
 	return true
 }
 
-func sys_add(start uint64, end uint64, results *[]sysc, syscall_list []sysc){
+func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64){
 	for _, s := range syscall_list {
 		if s.Addr >= start && s.Addr <= end {
-			*results=append(*results,s)
+			*results=append(*results,res{s,path})
 			return
 			}
 		}
 }
 
-
+/*
 func Navigate (r2p *r2.Pipe, current uint64, visited *[]uint64, results *[]sysc, syscall_list []sysc, functions []func_data){
 //	fmt.Printf("0x%08x\n", current)
 	Move(r2p, current)
@@ -184,6 +230,23 @@ func Navigate (r2p *r2.Pipe, current uint64, visited *[]uint64, results *[]sysc,
 //			fmt.Println("current ", current, " visiting ", xref, " visited ",*visited," iteration ",i)
 			if NotContained(*visited,xref) {
 				Navigate(r2p, xref, visited, results, syscall_list, functions)
+				}
+		}
+}
+*/
+
+func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data){
+//	fmt.Printf("0x%08x\n", current)
+	Move(r2p, current)
+	xrefs:=Getxrefs(r2p)
+	path:=append(visited, current)
+//	fmt.Println("current list ",xrefs)
+	sys_add(current, Function_end(current, functions), results, syscall_list, path)
+//	results:=checkfunction(current, targets)
+	for _,xref := range(xrefs) {
+//			fmt.Println("current ", current, " visiting ", xref, " visited ",*visited," iteration ",i)
+			if NotContained(visited,xref) {
+				Navigate(r2p, xref, path, results, syscall_list, functions)
 				}
 		}
 }
@@ -242,11 +305,75 @@ func get_all_funcdata(r2p *r2.Pipe)([]func_data){
 	return functions
 }
 
-func main() {
-	var visited []uint64
-	var results []sysc
+func print_help(fn string){
+        fmt.Println("Syscall finder")
+        fmt.Println("\t-s\tspecifies the symbol where the search starts")
+        fmt.Println("\t-f\tspecifies library path")
+        fmt.Println("\t-h\t\tthis help")
+        fmt.Printf("\nusage: %s -f libc.so.6 -s malloc\n", fn)
+}
+func print_error(err_no int, fn0 string){
+        switch err_no {
+                case Target:
+                        fmt.Println("File error")
+			print_help(fn0)
+                case Symbol:
+                        fmt.Println("symbol error")
+			print_help(fn0)
+                case Help:
+		case Default:
+                        print_help(fn0)
+                }
+}
 
-	r2p, err := r2.NewPipe("./libc.so.aarch64")
+
+
+func main() {
+	var visited		[]uint64
+	var results		[]res
+	var FileName		string="Empty"
+	var SymbolTarget	string="Empty"
+
+        arg_func:=None;
+        for _, arg := range os.Args[1:] {
+                switch arg {
+                        case "-f":
+//				fmt.Println("reach here Target")
+                                arg_func=Target
+                        case "-s":
+//				fmt.Println("reach here Symbol")
+                                arg_func=Symbol
+                        case "-h":
+//				fmt.Println("reach here Help")
+                                print_help(os.Args[0])
+				os.Exit(Help)
+                        default:
+//				fmt.Println("reach here default")
+                                switch arg_func {
+                                        case Target:
+                                                FileName=arg
+                                                if _, err := os.Stat(FileName); err != nil {
+                                                        print_error(arg_func, os.Args[0])
+                                                        os.Exit(arg_func)
+                                                        }
+                                        case Symbol:
+                                                SymbolTarget = arg
+					case Help:
+						print_help(os.Args[0])
+						os.Exit(Success)
+                                        default:
+                                                print_error(Default, os.Args[0])
+                                                os.Exit(Default)
+                                        }
+                        }
+                }
+//	fmt.Println("reach here", os.Args[0])
+	if FileName=="Empty" ||  SymbolTarget=="Empty" {
+		print_error(Help, os.Args[0])
+		os.Exit(Default)
+		}
+
+	r2p, err := r2.NewPipe(FileName)
 	if err != nil {
 		panic(err)
 		}
@@ -258,8 +385,16 @@ func main() {
 //	Move(r2p, 505852)//sym.malloc
 //	xr:=Getxrefs(r2p)
 //	fmt.Println(xr)
+	funcs_data := get_all_funcdata(r2p)
 
-	Navigate(r2p, 505852, &visited, &results, get_syscalls(r2p), get_all_funcdata(r2p))
+//	target2search:=Symb2Addr(SymbolTarget, funcs_data)
+	target2search:=Symb2Addr_r(SymbolTarget, r2p)
+	if target2search==0 {
+		print_error(Symbol, os.Args[0])
+		os.Exit(Symbol)
+		}
+
+	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data)
 	fmt.Println(results)
 
 //	fmt.Println(Function_info(505852, get_all_funcdata(r2p)))
