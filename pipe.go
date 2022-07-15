@@ -2,6 +2,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 	"strings"
 	"encoding/json"
 	"sort"
@@ -105,17 +106,39 @@ type results struct{
 	Path		[]fref
 }
 
+var ts_Move		int64 =0
+var ts_Getxrefs		int64 =0
+var ts_get_all_funcdata	int64 =0
+var ts_get_syscalls	int64 =0
+var ts_init_fw		int64 =0
+var ts_removeDuplicate	int64 =0
+var ts_sys_add		int64 =0
+var ts_NotContained	int64 =0
+var ts_Symb2Addr_r	int64 =0
+var ts_Function_end 	int64 =0
+
+func update_prof_stat(ts_in int64, ts_global *int64){
+	ts_out:=time.Now().UnixNano()
+	*ts_global+= (ts_out - ts_in)
+}
+
 
 func Move(r2p *r2.Pipe,current uint64){
+	x:=time.Now().UnixNano()
+	defer update_prof_stat(x, &ts_Move)
+
+
 	_, err := r2p.Cmd("s "+ strconv.FormatUint(current,10))
 	if err != nil {
 		panic(err)
 		}
 }
 
-func Getxrefs3(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
+func Getxrefs(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
         var xrefs               []xref
         var res                 []uint64;
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_Getxrefs)
 
 	for _, item := range *cache  {
                 if item.Addr==current {
@@ -140,6 +163,9 @@ func Getxrefs3(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
 }
 
 func Function_end(current uint64, funcs []func_data) (end uint64){
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_Function_end)
+
         for _, f := range funcs {
                 if f.Offset == current {
                         return uint64(f.Size)+current
@@ -148,19 +174,10 @@ func Function_end(current uint64, funcs []func_data) (end uint64){
         return 0
 }
 
-func Symb2Addr(s string, funcs []func_data) (uint64){
-        for _, f := range funcs {
-                if strings.Contains(f.Name,s)  {
-			if f.Name != s {
-				fmt.Printf("Warning: provided symbol %s not found, using %s", s, f.Name)
-	                        return f.Offset
-				}
-                	}
-        	}
-        return 0
-}
-
 func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_Symb2Addr_r)
+
 	var f  []func_data
         buf, err := r2p.Cmd("afij "+ s)
         if err != nil {
@@ -189,6 +206,9 @@ func convertSliceToInterface(s interface{}) (slice []interface{}) {
 }
 
 func NotContained(s interface{}, e interface{}) bool {
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_NotContained)
+
 	slice := convertSliceToInterface(s)
 
 	for _, a := range slice {
@@ -200,6 +220,9 @@ func NotContained(s interface{}, e interface{}) bool {
 }
 
 func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64){
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_sys_add )
+
 	for _, s := range syscall_list {
 		if s.Addr >= start && s.Addr <= end {
 			*results=append(*results,res{s,path})
@@ -208,7 +231,9 @@ func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path
 		}
 }
 
-func removeDuplicateInt(intSlice []uint64) []uint64 {
+func removeDuplicate(intSlice []uint64) []uint64 {
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_removeDuplicate )
 
 	allKeys := make(map[uint64]bool)
 	list := []uint64{}
@@ -224,10 +249,10 @@ func removeDuplicateInt(intSlice []uint64) []uint64 {
 func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
 
 	Move(r2p, current)
-	xrefs3:=removeDuplicateInt(Getxrefs3(r2p, current, xr_cache))
+	xrefs:=removeDuplicate(Getxrefs(r2p, current, xr_cache))
 	path:=append(visited, current)
 	sys_add(current, Function_end(current, functions), results, syscall_list, path)
-	for _,xref := range(xrefs3) {
+	for _,xref := range(xrefs) {
 			if NotContained(visited,xref) {
 				Navigate(r2p, xref, path, results, syscall_list, functions, xr_cache)
 				}
@@ -235,6 +260,9 @@ func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, s
 }
 
 func init_fw(r2p *r2.Pipe){
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_init_fw )
+
 
 	fmt.Println("Initializing Radare framework")
 	_, err := r2p.Cmd("aaa")
@@ -248,6 +276,9 @@ func init_fw(r2p *r2.Pipe){
 		}
 }
 func get_syscalls(r2p *r2.Pipe) ([]sysc){
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_get_syscalls )
+
 	var smap	[]sysc
 
 	_, err := r2p.Cmd("aei")
@@ -274,6 +305,9 @@ func get_syscalls(r2p *r2.Pipe) ([]sysc){
 
 
 func get_all_funcdata(r2p *r2.Pipe)([]func_data){
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_get_all_funcdata )
+
 	var functions	[]func_data
 
 	buf, err := r2p.Cmd("aflj")
@@ -309,7 +343,18 @@ func print_error(err_no int, fn0 string){
                 }
 }
 
-
+func print_stats(){
+	fmt.Println(ts_Move," Move ticks")
+	fmt.Println(ts_Getxrefs, " Getxrefs ticks")
+	fmt.Println(ts_get_all_funcdata, " get_all_funcdata ticks")
+	fmt.Println(ts_get_syscalls, " get_syscalls ticks")
+	fmt.Println(ts_init_fw, " init_fw ticks")
+	fmt.Println(ts_removeDuplicate, " removeDuplicate ticks")
+	fmt.Println(ts_sys_add, " sys_add ticks")
+	fmt.Println(ts_NotContained, " NotContained ticks")
+	fmt.Println(ts_Symb2Addr_r, " Symb2Addr_r ticks")
+	fmt.Println(ts_Function_end, " Function_end ticks")
+}
 
 func main() {
 	var visited		[]uint64
@@ -368,4 +413,6 @@ func main() {
 
 	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 	fmt.Println(results)
+	print_stats()
+
 }
