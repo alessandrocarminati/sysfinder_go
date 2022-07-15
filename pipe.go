@@ -226,12 +226,12 @@ func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
         if err != nil {
                 panic(err)
                 }
-	fmt.Println(buf)
+	///fmt.Println(buf)
 	error := json.Unmarshal( []byte(buf), &f)
         if(error != nil){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
-	fmt.Println(f[0])
+	//fmt.Println(f[0])
 	return f[0].Offset
 }
 
@@ -288,13 +288,25 @@ func Navigate (r2p *r2.Pipe, current uint64, visited *[]uint64, results *[]sysc,
 		}
 }
 */
+func removeDuplicateInt(intSlice []uint64) []uint64 {
+
+	allKeys := make(map[uint64]bool)
+	list := []uint64{}
+	for _, item := range intSlice {
+		if _, value := allKeys[item]; !value {
+			allKeys[item] = true
+			list = append(list, item)
+			}
+		}
+	return list
+}
 
 func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
 
 //	fmt.Printf("0x%08x\n", current)
 	Move(r2p, current)
 //	xrefs1:=Getxrefs(r2p)
-	xrefs3:=Getxrefs3(r2p, current, xr_cache)
+	xrefs3:=removeDuplicateInt(Getxrefs3(r2p, current, xr_cache))
 //	xrefs2:=Getxrefs2(current, functions)
 	path:=append(visited, current)
 //	fmt.Println("current list ",xrefs)
