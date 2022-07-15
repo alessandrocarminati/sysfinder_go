@@ -90,6 +90,10 @@ type xref struct{
 	From		uint64		`json: "from"`
 	To		uint64		`json: "to"`
 }
+type xref_cache struct{
+	Addr		uint64
+	Xr		[]uint64
+}
 
 
 // field stack_var_.Spvars.Ref of type []main
@@ -134,6 +138,59 @@ func Getxrefs(r2p *r2.Pipe) ([]uint64){
 	return  res
 }
 
+func Getxrefs2(current uint64, functions []func_data) ([]uint64){
+        var xrefs               []ref_
+        var res                 []uint64;
+
+
+	fmt.Println("Getxrefs2: ", current)
+        for _, f := range functions  {
+                if f.Offset==current {
+                        xrefs=f.Callrefs
+			fmt.Println("Getxrefs2: ", f.Offset, f.Name)
+			break
+                        }
+                }
+
+	fmt.Println("Getxrefs2: ", xrefs)
+        for _, item := range xrefs  {
+                if item.Type=="CODE" {
+                        res=append(res,item.Addr)
+                        }
+                }
+	 fmt.Println("Getxrefs2: ", res)
+        return  res
+}
+
+func Getxrefs3(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
+        var xrefs               []xref
+        var res                 []uint64;
+
+	for _, item := range *cache  {
+                if item.Addr==current {
+//			fmt.Println( "cache hit")
+                        return item.Xr
+                        }
+                }
+        buf, err := r2p.Cmd("afxj")
+        if err != nil {
+                panic(err)
+                }
+        error := json.Unmarshal( []byte(buf), &xrefs)
+        if(error != nil){
+                fmt.Printf("Error while parsing data: %s", error)
+                }
+        for _, item := range xrefs  {
+                if item.Type=="CALL" {
+                        res=append(res,item.To)
+                        }
+                }
+	*cache=append(*cache,xref_cache{current,res})
+//	fmt.Println( "update cache ", len(*cache) )
+        return  res
+}
+
+
 /*
 func checkfunction(r2p *Pipe, current uint64, targets []uint64){
 	buf, err := r2p.Cmd("/as")
@@ -175,10 +232,7 @@ func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
 	fmt.Println(f[0])
-	if f[0].Name ==s {
-		return f[0].Offset
-		}
-	return 0
+	return f[0].Offset
 }
 
 
@@ -235,18 +289,21 @@ func Navigate (r2p *r2.Pipe, current uint64, visited *[]uint64, results *[]sysc,
 }
 */
 
-func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data){
+func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
+
 //	fmt.Printf("0x%08x\n", current)
 	Move(r2p, current)
-	xrefs:=Getxrefs(r2p)
+//	xrefs1:=Getxrefs(r2p)
+	xrefs3:=Getxrefs3(r2p, current, xr_cache)
+//	xrefs2:=Getxrefs2(current, functions)
 	path:=append(visited, current)
 //	fmt.Println("current list ",xrefs)
 	sys_add(current, Function_end(current, functions), results, syscall_list, path)
 //	results:=checkfunction(current, targets)
-	for _,xref := range(xrefs) {
+	for _,xref := range(xrefs3) {
 //			fmt.Println("current ", current, " visiting ", xref, " visited ",*visited," iteration ",i)
 			if NotContained(visited,xref) {
-				Navigate(r2p, xref, path, results, syscall_list, functions)
+				Navigate(r2p, xref, path, results, syscall_list, functions, xr_cache)
 				}
 		}
 }
@@ -331,6 +388,7 @@ func print_error(err_no int, fn0 string){
 func main() {
 	var visited		[]uint64
 	var results		[]res
+	var xr_cache		[]xref_cache
 	var FileName		string="Empty"
 	var SymbolTarget	string="Empty"
 
@@ -394,7 +452,7 @@ func main() {
 		os.Exit(Symbol)
 		}
 
-	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data)
+	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 	fmt.Println(results)
 
 //	fmt.Println(Function_info(505852, get_all_funcdata(r2p)))
