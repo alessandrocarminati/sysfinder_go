@@ -368,6 +368,38 @@ func print_stats(){
 	fmt.Println(ts_Function_end, " Function_end ticks")
 }
 
+func Addr2Sym(addr uint64, list []func_data) (string){
+        i := sort.Search(len(list), func(i int) bool { return list[i].Offset >= addr })
+        if i < len(list) && list[i].Offset == addr {
+                return list[i].Name;
+                }
+        return "Unknown"
+}
+
+func produce_terse(results []res) []string {
+        allKeys := make(map[string]bool)
+        list := []string{}
+        for _, item := range results {
+                if _, value := allKeys[item.Syscall.Name]; !value {
+                        allKeys[item.Syscall.Name] = true
+                        list = append(list, item.Syscall.Name)
+                        }
+                }
+        return list
+}
+
+
+func print_results(results []res, flag int, list []func_data){
+	for i, item := range results {
+		fmt.Printf("%04d:0x%08x %s ->[ ", i, item.Syscall.Addr, item.Syscall.Name)
+		for _,x :=range item.Path {
+			fmt.Printf("%s, ", Addr2Sym(x,list))
+			}
+		fmt.Printf("]\n")
+		}
+	fmt.Println(produce_terse(results))
+}
+
 func main() {
 	var visited		[]uint64
 	var results		[]res
@@ -429,7 +461,8 @@ func main() {
 		}
 
 	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
-	fmt.Println(results)
+//	fmt.Println(results)
+	print_results(results,0, funcs_data)
 	if profiler {
 		print_stats()
 		}
