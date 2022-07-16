@@ -22,7 +22,7 @@ const (
 
 
 
-type sysc struct{
+type sysc struct {
 	Addr	uint64
 	Name	string
 }
@@ -45,8 +45,8 @@ type func_data struct {
 	Type		string		`json: "type"`
 	Nbbs		uint16		`json: "nbbs"`
 	Is_lineal	bool		`json: "is-lineal"`
-	Ninstrs		uint8		`json: "ninstrs"`
-	Edges		uint8		`json: "edges"`
+	Ninstrs		uint16		`json: "ninstrs"`
+	Edges		uint16		`json: "edges"`
 	Ebbs		uint8		`json: "ebbs"`
 	Signature	string		`json: "signature"`
 	Minbound	uint32		`json: "minbound"`
@@ -55,7 +55,7 @@ type func_data struct {
 	Datarefs	[]uint64	`json: "datarefs"`
 	Codexrefs	[]ref_		`json: "codexrefs"`
 	Dataxrefs	[]uint64	`json: "dataxrefs"`
-	Indegree	uint8		`json: "indegree"`
+	Indegree	uint16		`json: "indegree"`
 	Outdegree	uint8		`json: "outdegree"`
 	Nlocals		uint8		`json: "nlocals"`
 	Nargs		uint8		`json: "nargs"`
@@ -64,6 +64,7 @@ type func_data struct {
 	Regvars		[]reg_var_	`json: "regvars"`
 	Difftype	string		`json: "difftype"`
 }
+//Error while parsing data: json: cannot unmarshal number 675 into Go struct field func_data.Edges of type uint8
 type ref_ struct{
 	Addr		uint64		`json: "addr"`
 	Type		string		`json: "type"`
@@ -77,13 +78,13 @@ type stack_var_ struct{
 }
 type vars_ref struct{
 	Base		string		`json: "base"`
-	Offset		uint32		`json: "offset"`
+	Offset		int32		`json: "offset"`
 }
 type reg_var_ struct{
 	Name		string		`json: "name"`
 	Kind		string		`json: "kind"`
 	Type		string		`json: "type"`
-	Ref		[]string	`json: "ref"`
+	Ref		string		`json: "ref"`
 }
 
 type xref struct{
@@ -187,7 +188,10 @@ func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
         if(error != nil){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
-	return f[0].Offset
+	if len(f)>0 {
+		return f[0].Offset
+		}
+	return 0
 }
 
 func convertSliceToInterface(s interface{}) (slice []interface{}) {
@@ -332,7 +336,8 @@ func print_help(fn string){
         fmt.Println("Syscall finder")
         fmt.Println("\t-s\tspecifies the symbol where the search starts")
         fmt.Println("\t-f\tspecifies library path")
-        fmt.Println("\t-h\t\tthis help")
+        fmt.Println("\t-p\tprint profiler data")
+        fmt.Println("\t-h\tthis help")
         fmt.Printf("\nusage: %s -f libc.so.6 -s malloc\n", fn)
 }
 func print_error(err_no int, fn0 string){
@@ -344,6 +349,7 @@ func print_error(err_no int, fn0 string){
                         fmt.Println("symbol error")
 			print_help(fn0)
                 case Help:
+			fallthrough
 		case Default:
                         print_help(fn0)
                 }
@@ -369,13 +375,16 @@ func main() {
 	var FileName		string="Empty"
 	var SymbolTarget	string="Empty"
 
-        arg_func:=None;
+        arg_func:=None
+	profiler:=false
         for _, arg := range os.Args[1:] {
                 switch arg {
                         case "-f":
                                 arg_func=Target
                         case "-s":
                                 arg_func=Symbol
+			case "-p":
+				profiler=true
                         case "-h":
                                 print_help(os.Args[0])
 				os.Exit(Help)
@@ -387,8 +396,10 @@ func main() {
                                                         print_error(arg_func, os.Args[0])
                                                         os.Exit(arg_func)
                                                         }
+						arg_func=None
                                         case Symbol:
                                                 SymbolTarget = arg
+						arg_func=None
 					case Help:
 						print_help(os.Args[0])
 						os.Exit(Success)
@@ -419,6 +430,8 @@ func main() {
 
 	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 	fmt.Println(results)
-	print_stats()
+	if profiler {
+		print_stats()
+		}
 
 }
