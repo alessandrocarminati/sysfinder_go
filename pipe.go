@@ -28,7 +28,7 @@ type sysc struct{
 }
 type res struct{
 	Syscall	sysc
-	Path	[]string
+	Path	[]uint64
 }
 type func_data struct {
 	Offset		uint64		`json:"offset"`
@@ -225,7 +225,7 @@ func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path
 
 	for _, s := range syscall_list {
 		if s.Addr >= start && s.Addr <= end {
-			*results=append(*results,res{s,path_s})
+			*results=append(*results,res{s,path})
 			return
 			}
 		}
@@ -253,7 +253,7 @@ func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, s
 	path:=append(visited, current)
 	sys_add(current, Function_end(current, functions), results, syscall_list, path)
 	for _,xref := range(xrefs) {
-			if NotContained(visited,xref) {
+			if NotContained(visited,xref) && is_func(xref, functions) {
 				Navigate(r2p, xref, path, results, syscall_list, functions, xr_cache)
 				}
 		}
@@ -302,7 +302,13 @@ func get_syscalls(r2p *r2.Pipe) ([]sysc){
 	return smap
 }
 
-
+func is_func(addr uint64, list []func_data) (bool){
+	i := sort.Search(len(list), func(i int) bool { return list[i].Offset >= addr })
+	if i < len(list) && list[i].Offset == addr {
+		return true;
+		}
+	return false
+}
 
 func get_all_funcdata(r2p *r2.Pipe)([]func_data){
         x:=time.Now().UnixNano()
