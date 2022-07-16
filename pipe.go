@@ -175,10 +175,10 @@ func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
 //	fmt.Println(f[0])
-	if f[0].Name ==s {
+//	if f[0].Name ==s {
 		return f[0].Offset
-		}
-	return 0
+//		}
+//	return 0
 }
 
 
