@@ -28,7 +28,7 @@ type sysc struct{
 }
 type res struct{
 	Syscall	sysc
-	Path	[]uint64
+	Path	[]string
 }
 type func_data struct {
 	Offset		uint64		`json:"offset"`
@@ -225,7 +225,7 @@ func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path
 
 	for _, s := range syscall_list {
 		if s.Addr >= start && s.Addr <= end {
-			*results=append(*results,res{s,path})
+			*results=append(*results,res{s,path_s})
 			return
 			}
 		}
