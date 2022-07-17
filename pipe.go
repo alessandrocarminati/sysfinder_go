@@ -2,6 +2,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"log"
 	"time"
 	"strings"
 	"encoding/json"
@@ -56,7 +57,7 @@ type func_data struct {
 	Codexrefs	[]ref_		`json: "codexrefs"`
 	Dataxrefs	[]uint64	`json: "dataxrefs"`
 	Indegree	uint16		`json: "indegree"`
-	Outdegree	uint8		`json: "outdegree"`
+	Outdegree	uint16		`json: "outdegree"`
 	Nlocals		uint8		`json: "nlocals"`
 	Nargs		uint8		`json: "nargs"`
 	Bpvars		[]stack_var_	`json: "bpvars"`
@@ -64,7 +65,6 @@ type func_data struct {
 	Regvars		[]reg_var_	`json: "regvars"`
 	Difftype	string		`json: "difftype"`
 }
-//Error while parsing data: json: cannot unmarshal number 675 into Go struct field func_data.Edges of type uint8
 type ref_ struct{
 	Addr		uint64		`json: "addr"`
 	Type		string		`json: "type"`
@@ -155,11 +155,72 @@ func Getxrefs(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
         for _, item := range xrefs  {
+                if item.Type=="CALL" || item.Type=="CODE"{
+//                if item.Type=="CALL" {
+                        res=append(res,item.To)
+                        }
+                }
+*cache=append(*cache,xref_cache{current,res})
+        return  res
+}
+func Getxrefs2(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
+        var xrefs               []xref
+        var res                 []uint64;
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_Getxrefs)
+
+	for _, item := range *cache  {
+                if item.Addr==current {
+                        return item.Xr
+                        }
+                }
+        buf, err := r2p.Cmd("afxj")
+        if err != nil {
+                panic(err)
+                }
+        error := json.Unmarshal( []byte(buf), &xrefs)
+        if(error != nil){
+                fmt.Printf("Error while parsing data: %s", error)
+                }
+        for _, item := range xrefs  {
+//                if item.Type=="CALL" || item.Type=="CODE"{
                 if item.Type=="CALL" {
                         res=append(res,item.To)
                         }
                 }
 	*cache=append(*cache,xref_cache{current,res})
+        return  res
+}
+func Getxrefs3(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
+        var xrefs               []xref
+        var res                 []uint64;
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_Getxrefs)
+
+	for _, item := range *cache  {
+                if item.Addr==current {
+//			fmt.Printf("cache hit\n")
+//			fmt.Println(item.Xr)
+//			fmt.Println(item)
+//			fmt.Println("-->" ,current)
+                        return item.Xr
+                        }
+                }
+        buf, err := r2p.Cmd("afxj")
+        if err != nil {
+                panic(err)
+                }
+        error := json.Unmarshal( []byte(buf), &xrefs)
+        if(error != nil){
+                fmt.Printf("Error while parsing data: %s", error)
+                }
+        for _, item := range xrefs  {
+                res=append(res,item.To)
+                }
+	*cache=append(*cache,xref_cache{current,res})
+//	fmt.Printf("cache miss\n")
+//	fmt.Println(res)
+//	fmt.Println("-->" ,current)
         return  res
 }
 
@@ -223,16 +284,22 @@ func NotContained(s interface{}, e interface{}) bool {
 	return true
 }
 
-func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64){
+func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64) (bool){
         x:=time.Now().UnixNano()
         defer update_prof_stat(x, &ts_sys_add )
 
+	tmp:=false
 	for _, s := range syscall_list {
 		if s.Addr >= start && s.Addr <= end {
+//			fmt.Println("-------------------")
+//			fmt.Printf("Start =%d, End=%d, Syscall=%s(%d)\n", start, end, s.Name, s.Addr)
+//			fmt.Println(path)
+//			fmt.Println("-------------------")
 			*results=append(*results,res{s,path})
-			return
+			tmp=true
 			}
 		}
+	return tmp
 }
 
 func removeDuplicate(intSlice []uint64) []uint64 {
@@ -250,15 +317,59 @@ func removeDuplicate(intSlice []uint64) []uint64 {
 	return list
 }
 
+func remove_non_func(list []uint64, functions []func_data) []uint64 {
+
+	res := []uint64{}
+	for _, item := range list {
+		if is_func(item, functions) {
+			res = append(res, item)
+			}
+		}
+	return res
+}
+
+func sSE(a, b []uint64) bool {
+	if len(a) != len(b) {
+		return true
+	}
+	for i, v := range a {
+		if v != b[i] {
+			return true
+		}
+	}
+	return false
+}
+
+
 func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
 
 	Move(r2p, current)
-	xrefs:=removeDuplicate(Getxrefs(r2p, current, xr_cache))
+	xrefs:=remove_non_func(removeDuplicate(Getxrefs3(r2p, current, xr_cache)),functions)
+//	fmt.Println(Addr2Sym(current,functions))
+//	fmt.Println(xrefs)
+
 	path:=append(visited, current)
-	sys_add(current, Function_end(current, functions), results, syscall_list, path)
+	_ = sys_add(current, Function_end(current, functions), results, syscall_list, path)
 	for _,xref := range(xrefs) {
-			if NotContained(visited,xref) && is_func(xref, functions) {
+			if NotContained(visited,xref) {
 				Navigate(r2p, xref, path, results, syscall_list, functions, xr_cache)
+				}
+		}
+}
+
+func Navigate2 (r2p *r2.Pipe, current uint64, visited *[]uint64, old_path []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
+
+	Move(r2p, current)
+	xrefs:=remove_non_func(removeDuplicate(Getxrefs3(r2p, current, xr_cache)),functions)
+//	fmt.Println(Addr2Sym(current,functions))
+//	fmt.Println(xrefs)
+
+	*visited=append(*visited, current)
+	path:=append(old_path, current);
+	_ = sys_add(current, Function_end(current, functions), results, syscall_list, path)
+	for _,xref := range(xrefs) {
+			if NotContained(*visited,xref) {
+				Navigate2(r2p, xref, visited, path, results, syscall_list, functions, xr_cache)
 				}
 		}
 }
@@ -267,13 +378,14 @@ func init_fw(r2p *r2.Pipe){
         x:=time.Now().UnixNano()
         defer update_prof_stat(x, &ts_init_fw )
 
+	l := log.New(os.Stderr, "", 0)
 
-	fmt.Println("Initializing Radare framework")
+	l.Println("Initializing Radare framework")
 	_, err := r2p.Cmd("aaa")
 	if err != nil {
 		panic(err)
 		}
-	fmt.Println("Addirional functions analysis")
+	l.Println("Addirional functions analysis")
 	_, err = r2p.Cmd("aaf")
 	if err != nil {
 		panic(err)
@@ -337,6 +449,7 @@ func print_help(fn string){
         fmt.Println("\t-s\tspecifies the symbol where the search starts")
         fmt.Println("\t-f\tspecifies library path")
         fmt.Println("\t-p\tprint profiler data")
+        fmt.Println("\t-t\tprint terse data")
         fmt.Println("\t-h\tthis help")
         fmt.Printf("\nusage: %s -f libc.so.6 -s malloc\n", fn)
 }
@@ -389,13 +502,16 @@ func produce_terse(results []res) []string {
 }
 
 
-func print_results(results []res, flag int, list []func_data){
-	for i, item := range results {
-		fmt.Printf("%04d:0x%08x %s ->[ ", i, item.Syscall.Addr, item.Syscall.Name)
-		for _,x :=range item.Path {
-			fmt.Printf("%s, ", Addr2Sym(x,list))
+func print_results(results []res, terse bool, list []func_data){
+
+	if !terse {
+		for i, item := range results {
+			fmt.Printf("%04d:0x%08x %s ->[ ", i, item.Syscall.Addr, item.Syscall.Name)
+			for _,x :=range item.Path {
+				fmt.Printf("%s(0x%08x), ", Addr2Sym(x,list), x)
+				}
+			fmt.Printf("]\n")
 			}
-		fmt.Printf("]\n")
 		}
 	fmt.Println(produce_terse(results))
 }
@@ -409,6 +525,7 @@ func main() {
 
         arg_func:=None
 	profiler:=false
+	terse:=false
         for _, arg := range os.Args[1:] {
                 switch arg {
                         case "-f":
@@ -417,6 +534,8 @@ func main() {
                                 arg_func=Symbol
 			case "-p":
 				profiler=true
+			case "-t":
+				terse=true
                         case "-h":
                                 print_help(os.Args[0])
 				os.Exit(Help)
@@ -459,10 +578,11 @@ func main() {
 		print_error(Symbol, os.Args[0])
 		os.Exit(Symbol)
 		}
-
-	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
+	fmt.Println("analisys")
+//	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
+	Navigate2(r2p, target2search, &visited, nil, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 //	fmt.Println(results)
-	print_results(results,0, funcs_data)
+	print_results(results, terse, funcs_data)
 	if profiler {
 		print_stats()
 		}
