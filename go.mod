@@ -1,4 +1,4 @@
-module go2pipe
+module sysfinder
 
 go 1.17
 
