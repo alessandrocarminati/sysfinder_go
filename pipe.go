@@ -156,7 +156,6 @@ func Getxrefs(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
                 }
         for _, item := range xrefs  {
                 if item.Type=="CALL" || item.Type=="CODE"{
-//                if item.Type=="CALL" {
                         res=append(res,item.To)
                         }
                 }
@@ -183,7 +182,6 @@ func Getxrefs2(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
         for _, item := range xrefs  {
-//                if item.Type=="CALL" || item.Type=="CODE"{
                 if item.Type=="CALL" {
                         res=append(res,item.To)
                         }
@@ -199,10 +197,6 @@ func Getxrefs3(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
 
 	for _, item := range *cache  {
                 if item.Addr==current {
-//			fmt.Printf("cache hit\n")
-//			fmt.Println(item.Xr)
-//			fmt.Println(item)
-//			fmt.Println("-->" ,current)
                         return item.Xr
                         }
                 }
@@ -218,9 +212,6 @@ func Getxrefs3(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
                 res=append(res,item.To)
                 }
 	*cache=append(*cache,xref_cache{current,res})
-//	fmt.Printf("cache miss\n")
-//	fmt.Println(res)
-//	fmt.Println("-->" ,current)
         return  res
 }
 
@@ -352,10 +343,6 @@ func sys_add2(r2p *r2.Pipe, start uint64, funcs []func_data, results *[]res, sys
 	for _, s := range syscall_list {
 		for _, b := range blocs {
 			if s.Addr >= b.Start && s.Addr <= b.End {
-//				fmt.Println("-------------------")
-//				fmt.Printf("Start =%d, End=%d, Syscall=%s(%d)\n", b.Start, b.End, s.Name, s.Addr)
-//				fmt.Println(path)
-//				fmt.Println("-------------------")
 				*results=append(*results,res{s,path})
 				tmp++
 				}
@@ -363,12 +350,6 @@ func sys_add2(r2p *r2.Pipe, start uint64, funcs []func_data, results *[]res, sys
 		}
 	return tmp
 }
-//**********************************************************************************************************************
-//**********************************************************************************************************************
-//**********************************************************************************************************************
-//**********************************************************************************************************************
-//**********************************************************************************************************************
-//**********************************************************************************************************************
 
 func removeDuplicate(intSlice []uint64) []uint64 {
         x:=time.Now().UnixNano()
@@ -413,8 +394,6 @@ func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, s
 
 	Move(r2p, current)
 	xrefs:=remove_non_func(removeDuplicate(Getxrefs(r2p, current, xr_cache)),functions)
-//	fmt.Println(Addr2Sym(current,functions))
-//	fmt.Println(xrefs)
 
 	path:=append(visited, current)
 	_ = sys_add(current, Function_end(current, functions), results, syscall_list, path)
@@ -429,13 +408,9 @@ func Navigate2 (r2p *r2.Pipe, current uint64, visited *[]uint64, old_path []uint
 
 	Move(r2p, current)
 	xrefs:=remove_non_func(removeDuplicate(Getxrefs3(r2p, current, xr_cache)),functions)
-//	fmt.Println(Addr2Sym(current,functions))
-//	fmt.Println(xrefs)
 
 	*visited=append(*visited, current)
 	path:=append(old_path, current);
-//	fmt.Println(Addr2Sym(current,functions)," ", sys_add(current, Function_end(current, functions), results, syscall_list, path))
-//	_=sys_add(current, Function_end(current, functions), results, syscall_list, path)
 	_=sys_add2(r2p, current, functions, results, syscall_list, path)
 	for _,xref := range(xrefs) {
 			if NotContained(*visited,xref) {
@@ -657,9 +632,7 @@ func main() {
 		print_error(Symbol, os.Args[0])
 		os.Exit(Symbol)
 		}
-//	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 	Navigate2(r2p, target2search, &visited, nil, &results, get_syscalls(r2p), funcs_data, &xr_cache)
-//	fmt.Println(results)
 	print_results(results, terse, funcs_data)
 	if profiler {
 		print_stats()
