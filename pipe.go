@@ -116,7 +116,6 @@ var ts_removeDuplicate	int64 =0
 var ts_sys_add		int64 =0
 var ts_NotContained	int64 =0
 var ts_Symb2Addr_r	int64 =0
-var ts_Function_end 	int64 =0
 
 func update_prof_stat(ts_in int64, ts_global *int64){
 	ts_out:=time.Now().UnixNano()
@@ -155,76 +154,10 @@ func Getxrefs(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
                 fmt.Printf("Error while parsing data: %s", error)
                 }
         for _, item := range xrefs  {
-                if item.Type=="CALL" || item.Type=="CODE"{
-                        res=append(res,item.To)
-                        }
-                }
-*cache=append(*cache,xref_cache{current,res})
-        return  res
-}
-func Getxrefs2(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
-        var xrefs               []xref
-        var res                 []uint64;
-        x:=time.Now().UnixNano()
-        defer update_prof_stat(x, &ts_Getxrefs)
-
-	for _, item := range *cache  {
-                if item.Addr==current {
-                        return item.Xr
-                        }
-                }
-        buf, err := r2p.Cmd("afxj")
-        if err != nil {
-                panic(err)
-                }
-        error := json.Unmarshal( []byte(buf), &xrefs)
-        if(error != nil){
-                fmt.Printf("Error while parsing data: %s", error)
-                }
-        for _, item := range xrefs  {
-                if item.Type=="CALL" {
-                        res=append(res,item.To)
-                        }
-                }
-	*cache=append(*cache,xref_cache{current,res})
-        return  res
-}
-func Getxrefs3(r2p *r2.Pipe, current uint64, cache *[]xref_cache) ([]uint64){
-        var xrefs               []xref
-        var res                 []uint64;
-        x:=time.Now().UnixNano()
-        defer update_prof_stat(x, &ts_Getxrefs)
-
-	for _, item := range *cache  {
-                if item.Addr==current {
-                        return item.Xr
-                        }
-                }
-        buf, err := r2p.Cmd("afxj")
-        if err != nil {
-                panic(err)
-                }
-        error := json.Unmarshal( []byte(buf), &xrefs)
-        if(error != nil){
-                fmt.Printf("Error while parsing data: %s", error)
-                }
-        for _, item := range xrefs  {
                 res=append(res,item.To)
                 }
 	*cache=append(*cache,xref_cache{current,res})
         return  res
-}
-
-func Function_end(current uint64, funcs []func_data) (end uint64){
-        x:=time.Now().UnixNano()
-        defer update_prof_stat(x, &ts_Function_end)
-
-        for _, f := range funcs {
-                if f.Offset == current {
-                        return uint64(f.Size)+current
-                }
-        }
-        return 0
 }
 
 func Symb2Addr_r(s string, r2p *r2.Pipe) (uint64){
@@ -275,26 +208,7 @@ func NotContained(s interface{}, e interface{}) bool {
 	return true
 }
 
-func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64) (int){
-        x:=time.Now().UnixNano()
-        defer update_prof_stat(x, &ts_sys_add )
-
-	tmp:=0
-	for _, s := range syscall_list {
-		if s.Addr >= start && s.Addr <= end {
-			fmt.Println("-------------------")
-			fmt.Printf("Start =%d, End=%d, Syscall=%s(%d)\n", start, end, s.Name, s.Addr)
-			fmt.Println(path)
-			fmt.Println("-------------------")
-			*results=append(*results,res{s,path})
-			tmp++
-			}
-		}
-	return tmp
-}
-
-
-func sys_add2(r2p *r2.Pipe, start uint64, funcs []func_data, results *[]res, syscall_list []sysc, path []uint64) (int){
+func sys_add(r2p *r2.Pipe, start uint64, funcs []func_data, results *[]res, syscall_list []sysc, path []uint64) (int){
         x:=time.Now().UnixNano()
         defer update_prof_stat(x, &ts_sys_add )
 
@@ -389,32 +303,17 @@ func sSE(a, b []uint64) bool {
 	return false
 }
 
-
-func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
+func Navigate (r2p *r2.Pipe, current uint64, visited *[]uint64, old_path []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
 
 	Move(r2p, current)
 	xrefs:=remove_non_func(removeDuplicate(Getxrefs(r2p, current, xr_cache)),functions)
 
-	path:=append(visited, current)
-	_ = sys_add(current, Function_end(current, functions), results, syscall_list, path)
-	for _,xref := range(xrefs) {
-			if NotContained(visited,xref) {
-				Navigate(r2p, xref, path, results, syscall_list, functions, xr_cache)
-				}
-		}
-}
-
-func Navigate2 (r2p *r2.Pipe, current uint64, visited *[]uint64, old_path []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
-
-	Move(r2p, current)
-	xrefs:=remove_non_func(removeDuplicate(Getxrefs3(r2p, current, xr_cache)),functions)
-
 	*visited=append(*visited, current)
 	path:=append(old_path, current);
-	_=sys_add2(r2p, current, functions, results, syscall_list, path)
+	_=sys_add(r2p, current, functions, results, syscall_list, path)
 	for _,xref := range(xrefs) {
 			if NotContained(*visited,xref) {
-				Navigate2(r2p, xref, visited, path, results, syscall_list, functions, xr_cache)
+				Navigate(r2p, xref, visited, path, results, syscall_list, functions, xr_cache)
 				}
 		}
 }
@@ -531,7 +430,6 @@ func print_stats(){
 	fmt.Println(ts_sys_add, " sys_add ticks")
 	fmt.Println(ts_NotContained, " NotContained ticks")
 	fmt.Println(ts_Symb2Addr_r, " Symb2Addr_r ticks")
-	fmt.Println(ts_Function_end, " Function_end ticks")
 }
 
 func Addr2Sym(addr uint64, list []func_data) (string){
@@ -632,7 +530,7 @@ func main() {
 		print_error(Symbol, os.Args[0])
 		os.Exit(Symbol)
 		}
-	Navigate2(r2p, target2search, &visited, nil, &results, get_syscalls(r2p), funcs_data, &xr_cache)
+	Navigate(r2p, target2search, &visited, nil, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 	print_results(results, terse, funcs_data)
 	if profiler {
 		print_stats()
