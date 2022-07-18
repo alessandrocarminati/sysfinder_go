@@ -7,3 +7,7 @@ pippo.txt
 pippo2
 pippo2.save
 *.save
+.pippo.swp
+.ref.swp
+data3.txt
+res

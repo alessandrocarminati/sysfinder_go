@@ -34,7 +34,7 @@ type res struct{
 type func_data struct {
 	Offset		uint64		`json:"offset"`
 	Name		string		`json: "name"`
-	Size		uint32		`json: "size"`
+	Size		uint64		`json: "size"`
 	Is_pure		string		`json: "is-pure"`
 	Realsz		uint64		`json: "realsz"`
 	Noreturn	bool		`json: "noreturn"`
@@ -284,23 +284,91 @@ func NotContained(s interface{}, e interface{}) bool {
 	return true
 }
 
-func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64) (bool){
+func sys_add(start uint64, end uint64, results *[]res, syscall_list []sysc, path []uint64) (int){
         x:=time.Now().UnixNano()
         defer update_prof_stat(x, &ts_sys_add )
 
-	tmp:=false
+	tmp:=0
 	for _, s := range syscall_list {
 		if s.Addr >= start && s.Addr <= end {
-//			fmt.Println("-------------------")
-//			fmt.Printf("Start =%d, End=%d, Syscall=%s(%d)\n", start, end, s.Name, s.Addr)
-//			fmt.Println(path)
-//			fmt.Println("-------------------")
+			fmt.Println("-------------------")
+			fmt.Printf("Start =%d, End=%d, Syscall=%s(%d)\n", start, end, s.Name, s.Addr)
+			fmt.Println(path)
+			fmt.Println("-------------------")
 			*results=append(*results,res{s,path})
-			tmp=true
+			tmp++
 			}
 		}
 	return tmp
 }
+
+
+func sys_add2(r2p *r2.Pipe, start uint64, funcs []func_data, results *[]res, syscall_list []sysc, path []uint64) (int){
+        x:=time.Now().UnixNano()
+        defer update_prof_stat(x, &ts_sys_add )
+
+	type bloc struct {
+       		Start	uint64
+        	End	uint64
+	}
+	type rad_bloc struct {
+		Jump	uint64	`json: "jump"`
+		Fail	uint64	`json: "fail"`
+		Opaddr	uint64	`json: "opaddr"`
+		Addr	uint64	`json: "addr"`
+		Size	uint64	`json: "size"`
+		Inputs	uint8	`json: "inputs"`
+		Outputs	uint8	`json: "outputs"`
+		ninstr	uint16	`json: "ninstr"`
+		traced	bool	`json: "traced"`
+	}
+
+
+
+	var blocs	[]bloc
+	var rad_blocs	[]rad_bloc
+
+        for _, f := range funcs {
+                if f.Offset == start {
+			if f.Size==f.Realsz {
+	                        blocs=append(blocs,bloc{f.Offset, f.Offset+f.Size})
+				} else {
+			        buf, err := r2p.Cmd("afbj")
+				if err != nil {
+					panic(err)
+					 }
+				error := json.Unmarshal( []byte(buf), &rad_blocs)
+				if(error != nil){
+					fmt.Printf("Error while parsing data: %s", error)
+					}
+				for _,b := range rad_blocs {
+					blocs=append(blocs, bloc{b.Addr,b.Addr+b.Size})
+					}
+				}
+                }
+        }
+
+	tmp:=0
+	for _, s := range syscall_list {
+		for _, b := range blocs {
+			if s.Addr >= b.Start && s.Addr <= b.End {
+//				fmt.Println("-------------------")
+//				fmt.Printf("Start =%d, End=%d, Syscall=%s(%d)\n", b.Start, b.End, s.Name, s.Addr)
+//				fmt.Println(path)
+//				fmt.Println("-------------------")
+				*results=append(*results,res{s,path})
+				tmp++
+				}
+			}
+		}
+	return tmp
+}
+//**********************************************************************************************************************
+//**********************************************************************************************************************
+//**********************************************************************************************************************
+//**********************************************************************************************************************
+//**********************************************************************************************************************
+//**********************************************************************************************************************
 
 func removeDuplicate(intSlice []uint64) []uint64 {
         x:=time.Now().UnixNano()
@@ -344,7 +412,7 @@ func sSE(a, b []uint64) bool {
 func Navigate (r2p *r2.Pipe, current uint64, visited []uint64, results *[]res, syscall_list []sysc, functions []func_data, xr_cache *[]xref_cache){
 
 	Move(r2p, current)
-	xrefs:=remove_non_func(removeDuplicate(Getxrefs3(r2p, current, xr_cache)),functions)
+	xrefs:=remove_non_func(removeDuplicate(Getxrefs(r2p, current, xr_cache)),functions)
 //	fmt.Println(Addr2Sym(current,functions))
 //	fmt.Println(xrefs)
 
@@ -366,7 +434,9 @@ func Navigate2 (r2p *r2.Pipe, current uint64, visited *[]uint64, old_path []uint
 
 	*visited=append(*visited, current)
 	path:=append(old_path, current);
-	_ = sys_add(current, Function_end(current, functions), results, syscall_list, path)
+//	fmt.Println(Addr2Sym(current,functions)," ", sys_add(current, Function_end(current, functions), results, syscall_list, path))
+//	_=sys_add(current, Function_end(current, functions), results, syscall_list, path)
+	_=sys_add2(r2p, current, functions, results, syscall_list, path)
 	for _,xref := range(xrefs) {
 			if NotContained(*visited,xref) {
 				Navigate2(r2p, xref, visited, path, results, syscall_list, functions, xr_cache)
@@ -381,7 +451,11 @@ func init_fw(r2p *r2.Pipe){
 	l := log.New(os.Stderr, "", 0)
 
 	l.Println("Initializing Radare framework")
-	_, err := r2p.Cmd("aaa")
+        _, err := r2p.Cmd("e anal.nopskip=false")
+        if err != nil {
+                panic(err)
+                }
+	_, err = r2p.Cmd("aaa")
 	if err != nil {
 		panic(err)
 		}
@@ -390,6 +464,10 @@ func init_fw(r2p *r2.Pipe){
 	if err != nil {
 		panic(err)
 		}
+	l.Println("analisys")
+
+
+
 }
 func get_syscalls(r2p *r2.Pipe) ([]sysc){
         x:=time.Now().UnixNano()
@@ -514,6 +592,7 @@ func print_results(results []res, terse bool, list []func_data){
 			}
 		}
 	fmt.Println(produce_terse(results))
+	fmt.Println(len(produce_terse(results)))
 }
 
 func main() {
@@ -578,7 +657,6 @@ func main() {
 		print_error(Symbol, os.Args[0])
 		os.Exit(Symbol)
 		}
-	fmt.Println("analisys")
 //	Navigate(r2p, target2search, visited, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 	Navigate2(r2p, target2search, &visited, nil, &results, get_syscalls(r2p), funcs_data, &xr_cache)
 //	fmt.Println(results)
