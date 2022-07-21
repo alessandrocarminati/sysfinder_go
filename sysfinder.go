@@ -329,12 +329,7 @@ func init_fw(r2p *r2.Pipe){
         if err != nil {
                 panic(err)
                 }
-	_, err = r2p.Cmd("aaa")
-	if err != nil {
-		panic(err)
-		}
-	l.Println("Addirional functions analysis")
-	_, err = r2p.Cmd("aaf")
+	_, err = r2p.Cmd("aa")
 	if err != nil {
 		panic(err)
 		}
